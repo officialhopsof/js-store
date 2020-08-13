@@ -196,6 +196,14 @@ describe('Store', () => {
       });
     });
 
+    it('does not allow assignment of the top level object if the structure does not match the registration', () => {
+      expect(() => {
+        Store.mock = {
+          bar: 'should throw'
+        };
+      }).toThrow();
+    });
+
     it('does not allow changing _persisted', () => {
       expect(() => {
         Store.mock = {
@@ -265,10 +273,6 @@ describe('Store', () => {
     });
 
     it('clears the cache', () => {
-      // To test this, let's change the localStorage data
-      //   outside of the Store and then see if we retrieve
-      //   the new data after clearing the cache.
-
       Store.mock.foo = 'mock string';
       expect(persistentData['mock']).toEqual({
         foo: 'mock string'
