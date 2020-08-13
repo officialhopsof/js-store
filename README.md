@@ -106,4 +106,4 @@ Store._setPersistedProperty = function (key, value) {
 
 * `Store.clearPersistentStorage()` - calls `_setPersistedProperty(key, null)` for all registered keys.
 * `Store.reset()` - removes all registered handlers and cached data.
-* `Store.clearCache()` - invalidates all cached objects, no effect for non-persistent storage
+* `Store.clearCache()` - deletes all cached data including non-persistent objects.
