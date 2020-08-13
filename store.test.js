@@ -1,25 +1,31 @@
-const { Store } = require('./../../../lib/components/store');
+const { Store } = require('store');
 
-describe(Store, () => {
-  const mockWindow = function () {
-    window = {
-      localStorage: {
-        data: {},
-        setItem(key, value) {
-          data[key] = value;
-        },
-        getItem(key) {
-          return data[key];
-        }
-      }
-    };
-    return window;
+describe('Store', () => {
+  let persistentData = {};
+
+  // Override Get and Set methods
+  Store._getPersistedProperty = function (key) {
+    return persistentData[key];
+  };
+
+  Store._setPersistedProperty = function (key, value) {
+    persistentData[key] = value;
   };
 
   describe('#register', () => {
+    beforeEach(() => {
+      persistentData = {};
+      Store.reset();
+
+      Store.register('mock', {
+        foo: '',
+        _persisted: true
+      });
+    });
+
     it('does not allow reregistration', () => {
       expect(() => {
-        Store.register('nonPersistedMock', {
+        Store.register('mock', {
           foo: ''
         });
       }).toThrow();
@@ -64,106 +70,103 @@ describe(Store, () => {
   });
 
   describe('persistent values', () => {
-    Store.register('persistedMock', {
-      foo: '',
-      _persisted: true
-    });
-
     beforeEach(() => {
-      window = mockWindow();
-      Store.clearCache();
+      persistentData = {};
+      Store.reset();
+
+      Store.register('mock', {
+        foo: '',
+        _persisted: true
+      });
     });
 
     it('allows saving the same value multiple times', () => {
-      Store.persistedMock.foo = 'mock string 1';
-      expect(Store.persistedMock.foo).toBe('mock string 1');
-      Store.persistedMock.foo = 'mock string 2';
-      expect(Store.persistedMock.foo).toBe('mock string 2');
+      Store.mock.foo = 'mock string 1';
+      expect(Store.mock.foo).toEqual('mock string 1');
+      Store.mock.foo = 'mock string 2';
+      expect(Store.mock.foo).toEqual('mock string 2');
     });
 
     it('saves in memory', () => {
-      Store.persistedMock.foo = 'mock string';
-      expect(Store.persistedMock.foo).toBe('mock string');
+      Store.mock.foo = 'mock string';
+      expect(Store.mock.foo).toEqual('mock string');
     });
 
-    it('saves persistent values to the localStorage', () => {
-      Store.persistedMock.foo = 'mock string';
-      expect(window.localStorage.getItem('persistedMock')).toBe(
-        JSON.stringify({
-          foo: 'mock string'
-        })
-      );
+    it('saves persistent values to the persistent storage', () => {
+      Store.mock.foo = 'mock string';
+      expect(persistentData['mock']).toEqual({
+        foo: 'mock string'
+      });
     });
 
-    it('reads from the cache', () => {
-      window.localStorage.setItem(
-        'persistedMock',
-        JSON.stringify({
-          foo: 'mock string'
-        })
-      );
+    it('reads sub elements from the cache', () => {
+      persistentData['mock'] = {
+        foo: 'mock string'
+      };
 
-      expect(Store.persistedMock.foo).toBe('mock string');
+      expect(Store.mock.foo).toEqual('mock string');
+    });
+
+    it('reads the top level object from the cache', () => {
+      persistentData['mock'] = {
+        foo: 'mock string'
+      };
+
+      expect(Store.mock).toEqual({
+        _cached: true,
+        _persisted: true,
+        foo: 'mock string'
+      });
     });
 
     it('does not retrieve from the cache more than once', () => {
       // We will test this by overriding the cache after the first
       //  miss and see if the value changes.
-      window.localStorage.setItem(
-        'persistedMock',
-        JSON.stringify({
-          foo: 'mock string'
-        })
-      );
+      persistentData['mock'] = {
+        foo: 'mock string'
+      };
 
-      expect(Store.persistedMock.foo).toBe('mock string');
+      expect(Store.mock.foo).toEqual('mock string');
 
-      window.localStorage.setItem(
-        'persistedMock',
-        JSON.stringify({
-          foo: 'new mock string'
-        })
-      );
+      persistentData['mock'] = {
+        foo: 'new mock string'
+      };
 
-      expect(Store.persistedMock.foo).toBe('mock string');
+      expect(Store.mock.foo).toEqual('mock string');
     });
 
     it('non-registered persistent data is discared', () => {
-      window.localStorage.setItem(
-        'persistedMock',
-        JSON.stringify({
-          foo: 'new mock string',
-          bar: 'also a new string'
-        })
-      );
+      persistentData['mock'] = JSON.stringify({
+        foo: 'new mock string',
+        bar: 'also a new string'
+      });
 
-      expect(Store.persistedMock.bar).toBe(undefined);
+      expect(Store.mock.bar).toEqual(undefined);
     });
 
     it("registered data that is not in the data store is set to it's default", () => {
-      window.localStorage.setItem(
-        'persistedMock',
-        JSON.stringify({
-          bar: 'also a new string'
-        })
-      );
+      Store.register('mockDefaultTest', {
+        foo: 'deault string',
+        _persisted: true
+      });
 
-      expect(Store.persistedMock.foo).toBe('new mock string');
+      persistentData['mockDefaultTest'] = {
+        bar: 'also a new string'
+      };
+
+      expect(Store.mockDefaultTest.foo).toEqual('deault string');
     });
 
     it('does not allow assignment if the structure does not match the registration', () => {
       expect(() => {
-        Store.nonPersistedMock.bar = 'hello';
+        Store.mock.bar = 'hello';
       }).toThrow();
     });
 
     it('allows array data to be retrieved from persistent storage', () => {
-      window.localStorage.setItem(
-        'persistedReadArrayMock',
-        JSON.stringify({
-          data: [1, 2, 3]
-        })
-      );
+      persistentData['persistedReadArrayMock'] = {
+        data: [1, 2, 3]
+      };
 
       Store.register('persistedReadArrayMock', {
         _persisted: true,
@@ -182,39 +185,83 @@ describe(Store, () => {
       Store.clearCache();
       expect(Store.persistedSaveArrayMock.data).toEqual([1, 2, 3]);
     });
+
+    it('persists on assignment of the whole top level object', () => {
+      Store.mock = {
+        foo: 'hello foo'
+      };
+
+      expect(persistentData['mock']).toEqual({
+        foo: 'hello foo'
+      });
+    });
+
+    it('does not allow changing _persisted', () => {
+      expect(() => {
+        Store.mock = {
+          foo: 'hello foo',
+          _persisted: false
+        };
+      }).toThrow();
+    });
+
+    it('ignores any changes to _cached', () => {
+      expect(() => {
+        Store.mock = {
+          foo: 'hello foo',
+          _cached: false
+        };
+      }).not.toThrow();
+
+      expect(Store.mock._cached).toEqual(true);
+    });
+
+    it('allows setting _persisted to the same value it was', () => {
+      expect(() => {
+        Store.mock = {
+          foo: 'hello foo',
+          _persisted: true
+        };
+      }).not.toThrow();
+    });
   });
 
   describe('non-persistant values', () => {
-    Store.register('nonPersistedMock', {
-      foo: ''
-    });
-
     beforeEach(() => {
-      window = mockWindow();
-      Store.clearCache();
+      persistentData = {};
+      Store.reset();
+
+      Store.register('mock', {
+        foo: ''
+      });
     });
 
     it('does not cache values when setting', () => {
-      Store.nonPersistedMock.foo = 'mock string';
-      expect(window.localStorage.getItem('nonPersistedMock')).toBe(null);
+      Store.mock.foo = 'mock string';
+      expect(persistentData['mock']).toEqual(undefined);
     });
 
     it('does not try to read the cache when reading', () => {
-      Store.nonPersistedMock.foo;
-      expect(window.localStorage.getItem('nonPersistedMock')).toBe(null);
+      Store.mock.foo;
+      expect(persistentData['mock']).toEqual(undefined);
     });
 
     it('does not allow assignment if the structure does not match the registration', () => {
       expect(() => {
-        Store.nonPersistedMock.bar = 'hello';
+        Store.mock.bar = 'hello';
       }).toThrow();
     });
   });
 
   describe('#clearCache', () => {
     beforeEach(() => {
-      window = mockWindow();
-      Store.clearCache();
+      persistentData = {};
+      Store.reset();
+
+      Store.register('mock', {
+        foo: '',
+        _persisted: true
+      });
     });
 
     it('clears the cache', () => {
@@ -222,22 +269,68 @@ describe(Store, () => {
       //   outside of the Store and then see if we retrieve
       //   the new data after clearing the cache.
 
-      Store.persistedMock.foo = 'mock string';
-      expect(window.localStorage.getItem('persistedMock')).toBe(
-        JSON.stringify({
-          foo: 'mock string'
-        })
-      );
+      Store.mock.foo = 'mock string';
+      expect(persistentData['mock']).toEqual({
+        foo: 'mock string'
+      });
 
       Store.clearCache();
-      window.localStorage.setItem(
-        'persistedMock',
-        JSON.stringify({
-          foo: 'sneaky mock string'
-        })
-      );
+      persistentData['mock'] = {
+        foo: 'sneaky mock string'
+      };
 
-      expect(Store.persistedMock.foo).toBe('sneaky mock string');
+      expect(Store.mock.foo).toEqual('sneaky mock string');
+    });
+  });
+
+  describe('#reset', () => {
+    beforeEach(() => {
+      persistentData = {};
+      Store.reset();
+
+      Store.register('mock', {
+        foo: '',
+        _persisted: true
+      });
+      Store.mock.foo = 'bar'; // Force update
+    });
+
+    it('removes all handlers', () => {
+      Store.reset();
+      expect(Store.mock).toBe(undefined);
+    });
+
+    it('removes all properties', () => {
+      Store.reset();
+      expect(Store._registeredHandlers['mock']).toBe(undefined);
+    });
+
+    it('does not clear any persisted data', () => {
+      Store.reset();
+      expect(persistentData['mock']).toEqual({
+        foo: 'bar'
+      });
+    });
+  });
+
+  describe('#clearPersistentStorage', () => {
+    beforeEach(() => {
+      persistentData = {};
+      Store.reset();
+
+      Store.register('mock', {
+        foo: 'testFoo'
+      });
+
+      persistentData['bar'] = 'testBar';
+    });
+
+    it('nullifies all (and only) registered keys in the storage', () => {
+      Store.clearPersistentStorage();
+      expect(persistentData).toEqual({
+        mock: null,
+        bar: 'testBar'
+      });
     });
   });
 });
