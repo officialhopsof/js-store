@@ -75,8 +75,16 @@ _Store = {
   },
   _validateStructure: function (a0, b0) {
     // Ensure both objects have the same structure
-    if (a0 === undefined || a0 === null || b0 === undefined || b0 === null) {
+    if (a0 === null || b0 === null) {
       return;
+    }
+
+    if (typeof b0 === typeof a0) {
+      if (typeof a0 !== 'object' || Array.isArray(a0)) {
+        return;
+      }
+    } else {
+      throw 'Assignment in Store must have the same structure as the definition.';
     }
 
     [
@@ -86,29 +94,13 @@ _Store = {
       let a = array[0];
       let b = array[1];
 
-      if (typeof a !== 'object' || typeof b !== 'object') {
-        return;
-      }
-
       let b_props = Object.getOwnPropertyNames(b);
 
       b_props.forEach(prop => {
-        if (typeof a === 'object' && !Array.isArray(a)) {
-          if (a[prop] === undefined) {
-            throw 'Assignment in Store must have the same structure as the definition.';
-          }
-
-          if (a[prop] !== null && b[prop] !== null) {
-            if (typeof a[prop] !== typeof b[prop]) {
-              throw 'Assignment in Store must have the same structure as the definition.';
-            }
-
-            // Since we are only checking for equality of the structure,
-            // we only need to perform this one time - as a minor optimization
-            if (index === 0 && typeof a[prop] === 'object') {
-              _Store._validateStructure(a[prop], b[prop]);
-            }
-          }
+        // Since we are only checking for equality of the structure,
+        // we only need to perform this one time - as a minor optimization
+        if (index === 0) {
+          _Store._validateStructure(a[prop], b[prop]);
         }
       });
     });
@@ -144,8 +136,6 @@ _Store = {
   _generateProxyHandler: function (key) {
     return {
       set(target, property, value) {
-        _Store._validateStructure(target[property], value);
-
         if (target === _Store._registeredHandlers[key]) {
           if (property === '_cached' || property === '_persisted') {
             target[property] = value;
@@ -156,6 +146,8 @@ _Store = {
             target['_cached'] = true;
           }
         }
+
+        _Store._validateStructure(target[property], value);
 
         // if the target is an object and it does not already have this property
         //  defined, then it is not allowed to add it. Since arrays are objects, we
@@ -237,6 +229,8 @@ Store = new Proxy(_Store, {
       if (value['_persisted'] !== undefined && value['_persisted'] != persisted) {
         throw `Can not reassign Store.${property}._persisted`;
       }
+
+      _Store._validateStructure(target[property], value);
 
       // If the old value was persisted, persist it
       if (persisted) {
