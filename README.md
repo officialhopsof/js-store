@@ -86,3 +86,24 @@ Store.bar
 Store.bar
  > hello
 ```
+
+## Overiding persistent storage behavior
+
+If you do not want to persist data to window.localStorage, you can overwrite this behavior by implementing both of the following functions
+
+```
+// Override Get and Set methods
+Store._getPersistedProperty = function (key) {
+  return <persistentData for given key>
+};
+
+Store._setPersistedProperty = function (key, value) {
+  <persistentData for given key> = value;
+};
+```
+
+## Other Functions
+
+* `Store.clearPersistentStorage()` - calls `_setPersistedProperty(key, null)` for all registered keys.
+* `Store.reset()` - removes all registered handlers and cached data.
+* `Store.clearCache()` - invalidates all cached objects, no effect for non-persistent storage
