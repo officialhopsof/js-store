@@ -23,100 +23,31 @@
   CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   SOFTWARE.
 
-  ## Description
-
-  This Store implementation is intended to allow you to share common data
-  across your application without buying into a fully featured state manager.
-  Furthermore, this is agnostic to which framework you are using if any.
-
-  ## USAGE
-
-  ### Step 1: Inclusion in your project
-
-  #### Node
-
-  `const { Store } = require('path/to/store');`
-
-  #### Pure JS - no require utility or bundler
-
-  In your HTML file add this line: `<script src="path/to/store.js"></script>`
-
-  ### Step 2: Registration
-
-  Since the Store is global and static, you must first register the data you 
-  indent to keep and manipulate. This registration process can only happen
-  once per item. This syntax for this registration is:
-
-  `Store.register(objectName, objectDefinition)`
-
-  * `objectName` (String) - the name of the piece of data you are storing
-  * `objectDefinition` (Object) - the implementation of that piece of data
-    * optional field: _persisted (Boolean) - You may include this in your
-         data definition. If it is set to true, this object will be saved
-         to localStorage. If it is set to false or omitted, it will not be
-         saved to localStorage.
-    * forbidden field: _cached - This is used internally and may not be set
-    * The data included in the definition will be used at the default
-    * The data format in the localStorage must match the registered data 
-         formatting. All sub structures must be the same data types. If
-         a field is included in the registration and it does not exist in
-         the persistent storage, the default given will be used. If data
-         exists in the persistent storage that is not in the registration,
-         that data will be discarded.
-
-  ### Step 3: Manipulation
-
-  Registered fields are directly appended to the Store object. Because of this
-  they can be used like any other object.
-
-  `Store.foo` will return the registered field `foo`.
-
-  `Store.foo = 5` will set the registered field `foo` to `5`.
-
-  ### Examples
-
-  #### Simple Non Persistent Data
-
-  ```
-  Store.register('foo', {
-    bar: 'baz'
-  });
-  ```
-
-  ```
-  Store.bar = 'hello';
-  Store.bar
-   > hello
-  // Restart process and reregister
-  Store.bar
-   > baz
-  ```
-
-  #### Simple Persistent Data
-
-  ```
-  Store.register('foo', {
-    _persisted: true,
-    bar: 'baz'
-  });
-  ```
-
-  ```
-  Store.bar = 'hello';
-  Store.bar
-   > hello
-  // Restart process and reregister
-  Store.bar
-   > hello
-  ```
-
+  See: https://github.com/officialhopsof/js-store for details on usage
 */
 
-class Store {
-  static _registeredHandlers = {};
+_Store = {
+  _registeredHandlers: {},
 
-  // Assign all of the properties from => to
-  static _assignProps(to, from) {
+  // Method to persist data
+  _setPersistedProperty: function (key, value) {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  },
+
+  // Method to retrieve persisted data
+  _getPersistedProperty: function (key) {
+    let data = window.localStorage.getItem(key);
+    if (data === null) {
+      return null;
+    }
+
+    return JSON.parse(data);
+  },
+  _deproxy: function (proxy) {
+    return JSON.parse(JSON.stringify(proxy));
+  },
+  _assignProps: function (to, from) {
+    // Assign all of the properties from => to
     if (from === null) {
       return;
     }
@@ -135,16 +66,15 @@ class Store {
       }
 
       if (typeof to[prop] === 'object' && to[prop] !== null) {
-        Store._assignProps(to[prop], from[prop]);
+        _Store._assignProps(to[prop], from[prop]);
         return;
       }
 
       to[prop] = from[prop];
     });
-  }
-
-  // Ensure both objects have the same structure
-  static _structureCheck(a0, b0) {
+  },
+  _validateStructure: function (a0, b0) {
+    // Ensure both objects have the same structure
     if (a0 === undefined || a0 === null || b0 === undefined || b0 === null) {
       return;
     }
@@ -176,22 +106,17 @@ class Store {
             // Since we are only checking for equality of the structure,
             // we only need to perform this one time - as a minor optimization
             if (index === 0 && typeof a[prop] === 'object') {
-              Store._structureCheck(a[prop], b[prop]);
+              _Store._validateStructure(a[prop], b[prop]);
             }
           }
         }
       });
     });
-  }
+  },
 
-  static register(key, handler) {
+  _setupHandler: function (handler) {
     if (typeof handler !== 'object') {
       throw `Handler must be an Object. Type given: ${typeof handler}`;
-    }
-
-    // Can't register a store item more than once
-    if (Store[key] !== undefined) {
-      throw `Store.${key} already defined.`;
     }
 
     if (handler._cached !== undefined) {
@@ -205,12 +130,23 @@ class Store {
     } else if (handler._persisted !== true && handler._persisted !== false) {
       throw `Can not register reserved store field '_persisted' to non-boolean value`;
     }
+  },
 
-    const proxyHandler = {
+  _persist: function (key) {
+    if (_Store[key]['_persisted'] === true) {
+      delete _Store[key]['_cached'];
+      delete _Store[key]['_persisted'];
+      _Store._setPersistedProperty(key, _Store._deproxy(_Store[key]));
+      _Store[key]['_cached'] = true;
+      _Store[key]['_persisted'] = true;
+    }
+  },
+  _generateProxyHandler: function (key) {
+    return {
       set(target, property, value) {
-        Store._structureCheck(target[property], value);
+        _Store._validateStructure(target[property], value);
 
-        if (target === handler) {
+        if (target === _Store._registeredHandlers[key]) {
           if (property === '_cached' || property === '_persisted') {
             target[property] = value;
             return true;
@@ -234,45 +170,95 @@ class Store {
 
         target[property] = value;
 
-        if (Store[key]['_persisted'] === true) {
-          delete Store[key]['_cached'];
-          delete Store[key]['_persisted'];
-          window.localStorage.setItem(key, JSON.stringify(Store[key]));
-          Store[key]['_cached'] = true;
-          Store[key]['_persisted'] = true;
-        }
+        _Store._persist(key);
         return true;
       },
       get(target, property) {
-        if (target === handler && target['_cached'] === false && target['_persisted'] === true) {
+        if (
+          target === _Store._registeredHandlers[key] &&
+          target['_cached'] === false &&
+          target['_persisted'] === true
+        ) {
           // Cache Miss
-          if (window.localStorage.getItem(key) !== undefined) {
-            Store._assignProps(target, JSON.parse(window.localStorage.getItem(key)));
+          if (_Store._getPersistedProperty(key) !== undefined) {
+            _Store._assignProps(target, _Store._getPersistedProperty(key));
           }
           target['_cached'] = true;
         }
 
         if (typeof target[property] === 'object' && target[property] !== null) {
-          return new Proxy(target[property], proxyHandler);
+          return new Proxy(target[property], _Store._generateProxyHandler(key));
         }
 
         return target[property];
       }
     };
+  },
+  register: function (key, handler) {
+    // Can't register a store item more than once
+    if (_Store[key] !== undefined) {
+      throw `Store.${key} already defined.`;
+    }
 
-    Store._registeredHandlers[key] = handler;
-    Store[key] = new Proxy(handler, proxyHandler);
-  }
-
-  static clearCache() {
+    _Store._setupHandler(handler);
+    _Store._registeredHandlers[key] = handler;
+    _Store[key] = new Proxy(handler, _Store._generateProxyHandler(key));
+  },
+  clearCache: function () {
     // Clear out all registered key and reregister them
-    Object.keys(Store._registeredHandlers).forEach(function (key) {
+    Object.keys(_Store._registeredHandlers).forEach(function (key) {
       delete Store[key]['_cached'];
       delete Store[key];
-      Store.register(key, Store._registeredHandlers[key]);
+      _Store.register(key, _Store._registeredHandlers[key]);
+    });
+  },
+  reset: function () {
+    Object.keys(_Store._registeredHandlers).forEach(function (key) {
+      delete Store[key];
+      delete _Store._registeredHandlers[key];
+    });
+  },
+  clearPersistentStorage: function () {
+    Object.keys(_Store._registeredHandlers).forEach(function (key) {
+      _Store._setPersistedProperty(key, null);
     });
   }
-}
+};
+
+// Proxy the Store to allow us to directly assign top level objects
+Store = new Proxy(_Store, {
+  set(target, property, value) {
+    if (_Store._registeredHandlers[property] === undefined) {
+      target[property] = value;
+    } else {
+      persisted = _Store[property]['_persisted'];
+
+      // Do not allow reassignment of _persisted
+      if (value['_persisted'] !== undefined && value['_persisted'] != persisted) {
+        throw `Can not reassign Store.${property}._persisted`;
+      }
+
+      // If the old value was persisted, persist it
+      if (persisted) {
+        value['_persisted'] = true;
+        value['_cached'] = true;
+        _Store[property] = value;
+        _Store._persist(property);
+      } else {
+        _Store[property] = value;
+      }
+    }
+
+    return true;
+  },
+  get(target, property) {
+    if (_Store._registeredHandlers[property] === undefined) {
+      return target[property];
+    }
+
+    return new Proxy(target[property], _Store._generateProxyHandler(property));
+  }
+});
 
 if (typeof module !== 'undefined') {
   module.exports = { Store };
